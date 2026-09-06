@@ -151,10 +151,28 @@ aside.panel{flex:none; overflow:hidden; display:flex; flex-direction:column;}
   .lmark:hover{filter:none;}
 }
 @media (max-width:700px){
-  #floatCard{width:min(290px,88vw);}
-  .layerCtl{max-width:74%;}
-  .brand h1{font-size:15px;}
-  .brand .crest{width:30px;height:30px;}
+  header.bar{height:auto; min-height:52px; flex-wrap:wrap; padding:5px 8px; row-gap:4px;}
+  .brand{flex:1 1 auto; min-width:0;}
+  .brand h1{font-size:14px; letter-spacing:0;}
+  .brand .crest{width:28px;height:28px;}
+  .brand h1 small{display:none;}
+  .head-actions{margin-left:auto;}
+  .head-actions .tbtn{padding:4px 8px; font-size:12px;}
+  #btnHelp{display:none;}
+  .head-stats{display:none;}
+  /* 搜索框通栏置顶，图层按钮改到底部横排，避免与搜索/按钮互叠 */
+  #searchWrap{top:10px; left:10px; right:10px; width:auto;}
+  #searchDrop{max-height:36vh;}
+  #searchWrap input{padding-top:7px; padding-bottom:7px;}
+  .layerCtl{top:auto; bottom:10px; left:10px; right:10px; width:auto; max-width:none;
+    justify-content:center; gap:5px; flex-wrap:nowrap;}
+  .layerCtl .tbtn{font-size:11px; padding:4px 8px;}
+  #zoomCtl{bottom:54px; left:8px;}
+  #zoomCtl .tbtn{width:30px;height:30px;}
+  #hintChip{top:auto; bottom:52px; left:50%; transform:translateX(-50%); max-width:86%;
+    white-space:normal; line-height:1.4; text-align:center;}
+  #floatCard{width:min(290px,86vw);}
+  .drawBtn{width:24px; height:44px;}
   footer.bar span:first-child{display:none;}
 }
 .mapLabel{pointer-events:none; font-size:15px; font-weight:600; fill:#fff; paint-order:stroke; stroke:rgba(0,0,0,.75); stroke-width:3.5px; letter-spacing:1px;}
@@ -908,6 +926,11 @@ function clearSelect(soft){
   labelTxt.style.display='none'; labelSub.style.display='none';
   renderDetail(-1);
   if (!soft) { fitAll(900); setCityChips(-1); }
+  // 窄屏下复位时同时收起自动弹出的抽屉，避免遮挡地图
+  if (window.matchMedia('(max-width:980px)').matches){
+    $('#detailPanel').classList.remove('open');
+    $('#cityPanel').classList.remove('open');
+  }
 }
 function renderDetail(i){
   detailBody.innerHTML = '';
