@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>豫 · 风土方舆 — 河南县域 2.5D 俯瞰图鉴</title>
 <style>
 :root{
@@ -130,7 +130,9 @@ aside.panel{flex:none; overflow:hidden; display:flex; flex-direction:column;}
 /* ---------- map ---------- */
 #mapWrap{flex:1; min-width:0; position:relative;}
 #mapStage{position:absolute; inset:0; border-radius:16px; overflow:hidden;
-  backdrop-filter:none; -webkit-backdrop-filter:none; /* 大画布每帧重绘，避免大面积背景模糊卡顿 */}
+  backdrop-filter:none; -webkit-backdrop-filter:none; /* 大画布每帧重绘，避免大面积背景模糊卡顿 */
+  touch-action:none; -webkit-touch-callout:none; user-select:none; -webkit-user-select:none;}
+#cityPanel .panel-body,#detailPanel .panel-body{-webkit-overflow-scrolling:touch; overscroll-behavior:contain;}
 #mapStage::after{content:""; position:absolute; left:12%; right:12%; bottom:-7%; height:16%; border-radius:50%;
   background:radial-gradient(ellipse at center, rgba(0,0,0,.55), transparent 68%); filter:blur(14px); pointer-events:none;}
 #mapPersp{position:absolute; inset:0; perspective:1700px; perspective-origin:50% 30%;}
@@ -140,6 +142,21 @@ aside.panel{flex:none; overflow:hidden; display:flex; flex-direction:column;}
   transition:filter .14s, stroke .14s;}
 .cnty:hover{filter:brightness(1.22) drop-shadow(0 0 5px rgba(255,205,120,.85)); stroke:#ffe9b6; stroke-width:1.7;}
 .cnty.sel{filter:brightness(1.3) drop-shadow(0 0 9px rgba(255,205,120,1)); stroke:#fff3cf; stroke-width:2;}
+
+/* ---- 移动 / 平板适配：无悬停设备去掉重滤镜与玻璃模糊（消除点击闪黑），保留描边高亮 ---- */
+@media (hover:none), (pointer:coarse){
+  .cnty:hover{filter:none; stroke:#ffe9b6; stroke-width:2;}
+  .cnty.sel{filter:none; stroke:#fff3cf; stroke-width:2.6;}
+  .glass{backdrop-filter:none; -webkit-backdrop-filter:none;}
+  .lmark:hover{filter:none;}
+}
+@media (max-width:700px){
+  #floatCard{width:min(290px,88vw);}
+  .layerCtl{max-width:74%;}
+  .brand h1{font-size:15px;}
+  .brand .crest{width:30px;height:30px;}
+  footer.bar span:first-child{display:none;}
+}
 .mapLabel{pointer-events:none; font-size:15px; font-weight:600; fill:#fff; paint-order:stroke; stroke:rgba(0,0,0,.75); stroke-width:3.5px; letter-spacing:1px;}
 .mapLabel.sub{font-size:11.5px; font-weight:400; fill:rgba(255,255,255,.8);}
 .pinMark{pointer-events:none;}
@@ -683,26 +700,61 @@ function onWheel(e){
   const f = Math.min(Math.max(Math.pow(1.9, -e.deltaY / 100), 0.6), 1.75); // 单次滚轮步长限幅
   zoomTo(f);
 }
-/* ---------- pointer / pan / zoom ---------- */
+/* ---------- pointer / pan / zoom / 触摸手势 ---------- */
 let downPt = null, downVB = null;
+const pointers = new Map();   // 活动触点（支持双指捏合缩放）
+let pinch = null;             // 捏合状态
+let pinchGuard = 0;           // 捏合结束后短暂屏蔽“误触点击”
+function countyUnder(e){
+  let t0 = e.target, ti = NaN;
+  while (t0 && t0 !== svg){
+    if (t0.dataset && t0.dataset.i != null){ ti = parseInt(t0.dataset.i, 10); break; }
+    t0 = t0.parentNode;
+  }
+  return Number.isFinite(ti) ? ti : (state.hoverIdx >= 0 ? state.hoverIdx : -1);
+}
 function onDown(e){
   if (state.touring) stopTour(false);
-  if (e.button === 0 || e.pointerType === 'touch'){
-    cancelZoom();
-    state.dragging = true; state.dragMoved = false;
-    downPt = { x:e.clientX, y:e.clientY };
-    downVB = { x:state.vb.x, y:state.vb.y };
-    // 记录按下时的县区（捕获会导致后续 leave 清空 hover，必须提前记下；标点子元素向上找县区）
-    let t0 = e.target, ti = NaN;
-    while (t0 && t0 !== svg){
-      if (t0.dataset && t0.dataset.i != null){ ti = parseInt(t0.dataset.i, 10); break; }
-      t0 = t0.parentNode;
-    }
-    state._downCounty = Number.isFinite(ti) ? ti : (state.hoverIdx >= 0 ? state.hoverIdx : -1);
-    svg.setPointerCapture && svg.setPointerCapture(e.pointerId);
+  if (!(e.button === 0 || e.pointerType === 'touch' || e.pointerType === 'pen')) return;
+  pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
+  svg.setPointerCapture && svg.setPointerCapture(e.pointerId);
+  cancelZoom();
+  if (pointers.size >= 2){           // 第二根手指落下 → 进入双指捏合
+    state.dragging = false; state.dragMoved = false; downPt = null;
+    const p = [...pointers.values()];
+    pinch = {
+      d0: Math.max(1, Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y)),
+      cx: (p[0].x + p[1].x) / 2, cy: (p[0].y + p[1].y) / 2,
+      w0: state.vb.w,
+      ux: state.vb.x + state.vb.w / 2, uy: state.vb.y + state.vb.h / 2
+    };
+    return;
   }
+  pinch = null; pinchGuard = 0;
+  state.dragging = true; state.dragMoved = false;
+  state._downCounty = countyUnder(e);
+  downPt = { x:e.clientX, y:e.clientY };
+  downVB = { x:state.vb.x, y:state.vb.y };
 }
 function onMove(e){
+  if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
+  if (pinch){                       // 双指捏合：缩放 + 双指平移
+    const p = [...pointers.values()];
+    if (p.length >= 2){
+      const d = Math.max(1, Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y));
+      const mx = (p[0].x + p[1].x) / 2, my = (p[0].y + p[1].y) / 2;
+      const nw = Math.min(Math.max(pinch.w0 * pinch.d0 / d, Z_MIN), Z_MAX);
+      const dxu = (mx - pinch.cx) * (nw / cw());
+      const dyu = (my - pinch.cy) * (nw / ch());
+      state.vb.w = nw;
+      state.vb.h = nw * (ch() / cw());
+      state.vb.x = pinch.ux + dxu - state.vb.w / 2;
+      state.vb.y = pinch.uy + dyu - state.vb.h / 2;
+      state.ar = state.vb.h / state.vb.w;
+      applyVB(); hideSpotTip();
+      return;
+    }
+  }
   if (state.dragging && downPt){
     const dx = e.clientX - downPt.x, dy = e.clientY - downPt.y;
     if (Math.abs(dx) + Math.abs(dy) > 3) state.dragMoved = true;
@@ -712,7 +764,8 @@ function onMove(e){
     hideSpotTip();
     return;
   }
-  // parallax tilt follow pointer
+  // parallax tilt follow pointer（仅鼠标悬停等无触点场景）
+  if (e.pointerType && e.pointerType !== 'mouse') return;
   const r = stage.getBoundingClientRect();
   const nx = (e.clientX - r.left) / r.width - 0.5;
   const ny = (e.clientY - r.top) / r.height - 0.5;
@@ -720,10 +773,19 @@ function onMove(e){
   moveFloat(e.clientX, e.clientY);
 }
 function onUp(e){
+  pointers.delete(e.pointerId);
+  if (pinch){                        // 捏合结束：防止剩余手指抬起被误判为点击
+    if (pointers.size < 2){
+      pinch = null;
+      pinchGuard = Date.now();
+      state.dragging = false; state.dragMoved = false; downPt = null;
+    }
+    return;
+  }
   if (state.dragging && downPt){
     const d = Math.hypot(e.clientX - downPt.x, e.clientY - downPt.y);
     state.dragging = false;
-    if (d < 8){  // 轻点：聚焦县区 / 点空白复位（不依赖 click 事件，避免指针捕获吞掉点击）
+    if (d < 8 && Date.now() - pinchGuard > 350){ // 轻点：聚焦县区 / 点空白复位
       const i = state._downCounty >= 0 ? state._downCounty : state.hoverIdx;
       if (i >= 0){
         selectCounty(i, true);
@@ -968,6 +1030,8 @@ function stopTour(resetLabel){
 svg.addEventListener('pointerdown', onDown);
 window.addEventListener('pointermove', onMove, {passive:true});
 window.addEventListener('pointerup', onUp);
+svg.addEventListener('pointercancel', onUp);
+svg.addEventListener('contextmenu', e => e.preventDefault()); // 触屏长按不弹系统菜单
 svg.addEventListener('wheel', onWheel, {passive:false});
 svg.addEventListener('pointerleave', () => { hideFloat(); });
 
